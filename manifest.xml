@@ -1,0 +1,19 @@
+<package>
+  <description brief="visual_grasping">
+
+     visual_grasping
+
+  </description>
+  <author>pezzotto</author>
+  <license>BSD</license>
+  <review status="unreviewed" notes=""/>
+  <url>http://ros.org/wiki/visual_grasping</url>
+  <depend package="openrave_bridge"/>
+  <depend package="pr2_control_utilities"/>
+  <depend package="tabletop_actions"/>
+  <depend package="sensor_msgs"/>
+  <depend package="geometry_msgs"/>
+
+</package>
+
+
