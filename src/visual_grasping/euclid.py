@@ -1145,23 +1145,23 @@ class Matrix4:
     new_rotate_euler = classmethod(new_rotate_euler)
 
     def new_rotate_triple_axis(cls, x, y, z):
-      m = cls()
-      
-      m.a, m.b, m.c = x.x, y.x, z.x
-      m.e, m.f, m.g = x.y, y.y, z.y
-      m.i, m.j, m.k = x.z, y.z, z.z
-      
-      return m
+        m = cls()
+        
+        m.a, m.b, m.c = x.x, y.x, z.x
+        m.e, m.f, m.g = x.y, y.y, z.y
+        m.i, m.j, m.k = x.z, y.z, z.z
+        
+        return m
     new_rotate_triple_axis = classmethod(new_rotate_triple_axis)
 
     def new_look_at(cls, eye, at, up):
-      z = (eye - at).normalized()
-      x = up.cross(z).normalized()
-      y = z.cross(x)
-      
-      m = cls.new_rotate_triple_axis(x, y, z)
-      m.d, m.h, m.l = eye.x, eye.y, eye.z
-      return m
+        z = (eye - at).normalized()
+        x = up.cross(z).normalized()
+        y = z.cross(x)
+        
+        m = cls.new_rotate_triple_axis(x, y, z)
+        m.d, m.h, m.l = eye.x, eye.y, eye.z
+        return m
     new_look_at = classmethod(new_look_at)
     
     def new_perspective(cls, fov_y, aspect, near, far):
