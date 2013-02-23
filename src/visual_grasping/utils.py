@@ -67,7 +67,7 @@ def matrixToPose(matrix):
     rotation specified by the Matrix.
 
     Parameters:
-    matrix: a Matrix4 (euclid.py)
+    matrix: a 4x4 transformation matrix
     """
     pos = Pose()
     T = transformations.translation_from_matrix(matrix)
@@ -193,7 +193,7 @@ def makeGripperMarker(pose, angle=0.0, color=None, scale=1.0):
 
     return gripper_marker
 
-def make_orth_basis(z_ax):
+def make_orth_basis_z_ax(z_ax):
     """
     orthogonal basis from a given z axis
     John Schulman magic code.
@@ -213,3 +213,64 @@ def make_orth_basis(z_ax):
     M = np.eye(4)
     M[:3, :3] = T
     return M
+
+
+def make_orth_basis(x_ax):
+    """
+    John Schulman magic code.
+    """
+    x_ax = np.asarray(x_ax)
+
+    x_ax = x_ax / np.linalg.norm(x_ax)
+    if np.allclose(x_ax, [1,0,0]):
+        return np.eye(3)
+    elif np.allclose(x_ax, [-1, 0, 0]):
+        return np.array([
+            [-1, 0, 0],
+            [0, -1, 0],
+            [0, 0, 1]])
+    else:
+        y_ax = np.r_[0, x_ax[2], -x_ax[1]]
+        y_ax /= np.linalg.norm(y_ax)
+        z_ax = np.cross(x_ax, y_ax)
+        return np.c_[x_ax, y_ax, z_ax]
+    
+    
+def valid_sphere_given_one_coord(d, 
+                                 x1, min_x2, max_x2,
+                                 center = (0, 0, 0), 
+                                 n_points=1,                                 
+                                 n_attempts = 100,
+                                 constrain_x2 = lambda _ :True,
+                                 constrain_x3 = lambda _: True):
+    
+    center_x1, center_x2, center_x3 = center
+    dx1 = x1 - center_x1
+    
+    if d ** 2 - dx1 ** 2 < 0:
+        return []
+    
+    attempt = 0
+    all_points = []
+    while len(all_points) < n_points and attempt < n_attempts:
+        attempt += 1
+        x2 = np.random.uniform(min_x2, max_x2)
+        dx2 = x2 - center_x2  
+        det =  d ** 2 - dx1**2 - dx2 ** 2
+        if det < 0:  #invalid coordinates
+            continue
+        if not constrain_x2(x2):
+            continue
+        dx3 = np.sqrt(det)
+        x3 = dx3 + center_x3
+        if not constrain_x3(x3):
+            continue
+        all_points.append([x1, x2, x3])
+    
+    return all_points
+            
+            
+        
+        
+    
+    
