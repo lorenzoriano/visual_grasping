@@ -1,8 +1,9 @@
 import euclid
 import copy
-import numpy
+import numpy as np
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import PoseStamped, Pose
+from tf import transformations
 
 def matrix4ToPose(matrix):
     """Converts a Matrix 4 to a Pose message by extracting the translation and
@@ -102,7 +103,7 @@ def makeGripperMarker(pose, angle=0.541, color=None, scale=1.0):
     T2 = euclid.Matrix4()
 
     T1.translate(0.07691, -0.01, 0.)
-    T1.rotate_axis(numpy.pi, euclid.Vector3(1,0,0))
+    T1.rotate_axis(np.pi, euclid.Vector3(1,0,0))
     T1.rotate_axis(angle, euclid.Vector3(0,0,1))
     T2.translate(0.09137, 0.00495, 0.)
     T1.rotate_axis(-angle, euclid.Vector3(0,0,1))
@@ -122,3 +123,24 @@ def makeGripperMarker(pose, angle=0.541, color=None, scale=1.0):
         marker.id = i
 
     return gripper_marker
+
+def make_orth_basis(z_ax):
+    """
+    orthogonal basis from a given z axis
+    John Schulman magic code.
+    """
+    z_ax = np.asarray(z_ax)
+    z_ax = z_ax / np.linalg.norm(z_ax)
+    
+    if np.allclose(z_ax, [0, 0, 1]) or np.allclose(z_ax, [0, 0, -1]):
+        raise Exception("singular values!")
+    
+    x_ax = np.array([0, 0, -1.])
+    x_ax -= z_ax * x_ax.dot(z_ax)
+    y_ax = np.cross(z_ax, x_ax)
+    
+    T = np.c_[x_ax, y_ax, z_ax]
+    #building a 4x4 matrix
+    M = np.eye(4)
+    M[:3, :3] = T
+    return M
