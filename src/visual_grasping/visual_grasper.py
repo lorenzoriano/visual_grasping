@@ -6,9 +6,11 @@ import utils
 import openrave_bridge.pr2model
 from geometry_msgs.msg import Pose, PoseStamped
 from visualization_msgs.msg import MarkerArray
+from sensor_msgs.msg import PointCloud2
 import tf
-
+import copy
 import numpy as np
+from pr2_control_utilities import IKUtilities
 
 class VisualGrasper(object):
     def __init__(self, robot = None):
@@ -17,9 +19,10 @@ class VisualGrasper(object):
         else:
             self.robot = robot
             
-        self.gripper_pub = rospy.Publisher("~gripper_estimate", MarkerArray)
-    
+        self.gripper_pub = rospy.Publisher("~gripper_estimate", MarkerArray)    
         self.tf_listener = tf.TransformListener()
+        self.left_ik = IKUtilities("left",
+                                   tf_listener=self.tf_listener)
     
     def gripper_from_points(self, p0, p1, frame_id = "/base_link"):
         """
@@ -36,7 +39,7 @@ class VisualGrasper(object):
 
         #moving the gripper backward so that the fingers touch the point
         T[:3,3] = dest
-        fingertip = T.dot([-0.18,0,0,1])
+        fingertip = T.dot([-0.16,0,0,1])
         T[:,3] = fingertip
 
         ps = PoseStamped()
@@ -56,6 +59,7 @@ class VisualGrasper(object):
                          min_gripper_y, 
                          max_gripper_y,
                          n_attempts=1000,
+                         n_poses = 100,
                          constrain_y = lambda _ :True,
                          constrain_z = lambda _: True                          
                           ):
@@ -80,30 +84,111 @@ class VisualGrasper(object):
                                                          min_gripper_y,
                                                          max_gripper_y,
                                                          (tx, ty, tz),
-                                                         1, 
+                                                         n_poses, 
                                                          n_attempts,
                                                          constrain_y,
                                                          constrain_z
                                                          )
         if len(gripper_xyz) == 0:
             rospy.logerr("Could not find a valid solution")
-            return False
-        gripper_x, gripper_y, gripper_z = gripper_xyz[0]
-
-        vec = (-gripper_x + tx,
-               -gripper_y + ty,
-               -gripper_z + tz,
-               )
+            return []
+        all_poses = []
+        for gripper_x, gripper_y, gripper_z in gripper_xyz:
+            vec = (-gripper_x + tx,
+                   -gripper_y + ty,
+                   -gripper_z + tz,
+                   )
+            
+            rot_mat = utils.make_orth_basis(vec)
+            
+            M = np.identity(4)
+            M[:3, :3] = rot_mat
+            M[:3, 3] = (gripper_x, gripper_y, gripper_z)
+            pos = utils.matrixToPose(M)
+            
+            ps = PoseStamped()
+            ps.header.frame_id = "/base_link"
+            ps.pose = pos
+            all_poses.append(ps)
+        return all_poses
+    
+    def grasp_bowl(pose, p0, p1, x_angle, frame_id ="/base_link"):
+        p1 =  np.asarray(p1)
+        p0 = np.asarray(p0)
+        if p0[2] > p1[2]:
+            dest = p0
+        else:
+            dest = p1
         
-        rot_mat = utils.make_orth_basis(vec)
+        Q = utils.transformations.quaternion_from_euler(x_angle, 
+                                                        np.pi/2, 
+                                                        0)
         
-        M = np.identity(4)
-        M[:3, :3] = rot_mat
-        M[:3, 3] = (gripper_x, gripper_y, gripper_z)
-        pos = utils.matrixToPose(M)
+        T = utils.transformations.quaternion_matrix(Q)
+        T[:3, 3] = dest
+        T[2,3] += 0.16
         
         ps = PoseStamped()
-        ps.header.frame_id = "/base_link"
-        ps.pose = pos
-        return ps
+        ps.header.frame_id = frame_id
+        ps.pose = utils.matrixToPose(T)
+        return ps        
     
+    def do_the_grasp(self, angle_in_degrees):
+        bolt_points = rospy.wait_for_message("/bolt/vision/pcl_robot", 
+                                             PointCloud2)
+        all_points = utils.pointcloud2_to_xyz_array(bolt_points)
+        p0 = all_points[0,:]
+        p1 = all_points[2,:]
+        angle = np.deg2rad(angle_in_degrees + 90)
+        ps = self.grasp_bowl(p0, p1, angle)
+        self.publish_gripper_pose(ps)
+        approach = copy.deepcopy(ps)
+        approach.pose.position.z += 0.2
+        if ps.pose.position.y > 0:
+            self.robot.move_left_arm(approach)
+            self.robot.controller.open_left_gripper()
+            self.robot.move_left_arm(ps)
+            self.robot.controller.close_left_gripper()
+        else:
+            self.robot.move_right_arm(approach)
+            self.robot.controller.open_right_gripper()
+            self.robot.move_right_arm(ps)
+            self.robot.controller.close_right_gripper()    
+        
+    def visible_trajectory(self, target, desired_dist):
+        self.robot.controller.time_to_reach = 5.0
+        ddist = (desired_dist-0.01)/2
+        for gripper_x in np.linspace(target.pose.position.x - ddist, 
+                                     target.pose.position.x + ddist):
+        
+            min_gripper_y = target.pose.position.y - ddist;
+            max_gripper_y = target.pose.position.y + ddist;
+            contrain_z = lambda z: z>target.pose.position.z+0.2
+            all_gripper_ps = self.point_at_gripper(target, 
+                                                   desired_dist, 
+                                                   gripper_x, 
+                                                   min_gripper_y,
+                                                   max_gripper_y,
+                                                   n_poses=10,
+                                                   constrain_z=contrain_z)
+            for gripper_ps in all_gripper_ps:
+                M = utils.poseTomatrix(gripper_ps.pose)
+                x,y,z = utils.transformations.euler_from_matrix(M)
+                x += np.pi
+                M2 = utils.transformations.euler_matrix(x,y,z)
+                M[:3, :3] = M2[:3,:3]
+                newpos = utils.matrixToPose(M)            
+                gripper_ps.pose = newpos
+                self.publish_gripper_pose(gripper_ps)
+
+                joint_angles = self.robot.controller.robot_state.left_arm_positions
+                joints, _ = self.left_ik.run_ik(gripper_ps,
+                                                joint_angles,
+                                                "l_wrist_roll_link",
+                                                collision_aware=0)
+                if joints is not None and len(joints) != 0:
+                #if self.robot.move_left_arm(gripper_ps):                    
+                    self.robot.controller.time_to_reach = 1.5
+                    self.robot.controller.set_arm_state(joints, "left", wait=True)
+                    break
+        self.robot.controller.time_to_reach = 5.0

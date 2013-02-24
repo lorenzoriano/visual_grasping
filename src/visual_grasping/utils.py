@@ -13,7 +13,8 @@ def pointcloud2_to_array(cloud_msg):
     '''
     dtype_list = [(f.name, np.float32) for f in cloud_msg.fields]
     cloud_arr = np.fromstring(cloud_msg.data, dtype_list)
-    return np.reshape(cloud_arr, (cloud_msg.height, cloud_msg.width))
+    #return np.reshape(cloud_arr, (cloud_msg.height, cloud_msg.width))
+    return cloud_arr
 
 def get_xyz_points(cloud_array, remove_nans=True):
     '''
