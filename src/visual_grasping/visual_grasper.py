@@ -157,20 +157,21 @@ class VisualGrasper(object):
         
     def visible_trajectory(self, target, desired_dist):
         self.robot.controller.time_to_reach = 5.0
-        ddist = (desired_dist-0.01)/2
+        ddist = (desired_dist-0.01)
         for gripper_x in np.linspace(target.pose.position.x - ddist, 
                                      target.pose.position.x + ddist):
         
             min_gripper_y = target.pose.position.y - ddist;
             max_gripper_y = target.pose.position.y + ddist;
-            contrain_z = lambda z: z>target.pose.position.z+0.2
+            contrain_z = lambda z: z>target.pose.position.z+0.0
             all_gripper_ps = self.point_at_gripper(target, 
                                                    desired_dist, 
                                                    gripper_x, 
                                                    min_gripper_y,
                                                    max_gripper_y,
-                                                   n_poses=10,
+                                                   n_poses=20,
                                                    constrain_z=contrain_z)
+            list_of_joints = []
             for gripper_ps in all_gripper_ps:
                 M = utils.poseTomatrix(gripper_ps.pose)
                 x,y,z = utils.transformations.euler_from_matrix(M)
@@ -181,14 +182,24 @@ class VisualGrasper(object):
                 gripper_ps.pose = newpos
                 self.publish_gripper_pose(gripper_ps)
 
-                joint_angles = self.robot.controller.robot_state.left_arm_positions
-                joints, _ = self.left_ik.run_ik(gripper_ps,
-                                                joint_angles,
-                                                "l_wrist_roll_link",
-                                                collision_aware=0)
-                if joints is not None and len(joints) != 0:
-                #if self.robot.move_left_arm(gripper_ps):                    
-                    self.robot.controller.time_to_reach = 1.5
-                    self.robot.controller.set_arm_state(joints, "left", wait=True)
-                    break
+                curr_joint_angles = self.robot.controller.robot_state.left_arm_positions
+                curr_joint_angles = np.array(curr_joint_angles)
+                #joints, _ = self.left_ik.run_ik(gripper_ps,
+                                                #curr_joint_angles,
+                                                #"l_wrist_roll_link",
+                                                #collision_aware=0)
+                sols = self.robot.find_leftarm_ik(gripper_ps,
+                                                            ignore_end_effector=False,
+                                                            multiple_soluitions = True)
+                if sols is not None and len(sols) != 0:
+                    list_of_joints.extend(sols)
+            list_of_joints = np.array(list_of_joints)
+            if list_of_joints is not None and len(list_of_joints) != 0:
+                print "Got %s solutions" % (list_of_joints.shape, )
+                dists = np.sum((list_of_joints - curr_joint_angles)**2, 1)
+                i = np.argmin(dists)
+                joints = list_of_joints[i, :]
+                
+                self.robot.controller.time_to_reach = 1.5
+                self.robot.controller.set_arm_state(joints, "left", wait=True)
         self.robot.controller.time_to_reach = 5.0
