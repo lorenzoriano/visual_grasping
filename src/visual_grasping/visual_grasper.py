@@ -116,20 +116,26 @@ class VisualGrasper(object):
             all_poses.append(ps)
         return all_poses
     
-    def grasp_bowl(pose, p0, p1, x_angle, frame_id ="/base_link"):
-        p1 =  np.asarray(p1)
-        p0 = np.asarray(p0)
-        if p0[2] > p1[2]:
-            dest = p0
+    def grasp_bowl(self, p0, x_angle, frame_id ="/base_link",
+                   side_grasp = False):
+        dest = np.asarray(p0)
+        
+        if side_grasp:
+            rospy.loginfo("Doing a side grasp")
+            Q = utils.transformations.quaternion_from_euler(
+                0, 
+                0, 
+                x_angle-np.pi/2)
         else:
-            dest = p1
+            rospy.loginfo("Doing a top grasp")
+            Q = utils.transformations.quaternion_from_euler(
+                x_angle, 
+                np.pi/2, 
+                0)
         
-        Q = utils.transformations.quaternion_from_euler(x_angle, 
-                                                        np.pi/2, 
-                                                        0)
-        
+        rospy.loginfo("Got a quaternion of \n%s", Q)
         T = utils.transformations.quaternion_matrix(Q)
-        T[:3, 3] = dest
+        T[:3, 3] = dest            
         T[2,3] += 0.16
         
         ps = PoseStamped()
@@ -137,37 +143,46 @@ class VisualGrasper(object):
         ps.pose = utils.matrixToPose(T)
         return ps        
     
-    def do_the_grasp(self, angle_in_degrees):
+    def do_the_grasp(self, angle, pullup=False, side_grasp = False):
         bolt_points = rospy.wait_for_message("/bolt/vision/pcl_robot", 
                                              PointCloud2)
+        rospy.loginfo("received the points")
         all_points = utils.pointcloud2_to_xyz_array(bolt_points)
-        p0 = all_points[0,:]
-        p1 = all_points[2,:]
-        angle = np.deg2rad(angle_in_degrees + 90)
-        ps = self.grasp_bowl(p0, p1, angle)
+        p0 = all_points[0,:]        
+        #angle = all_points[1,0]*360. / 255.
+        #rospy.loginfo("Raw angle: %s", all_points)
+        angle = np.deg2rad(angle + 90)
+        ps = self.grasp_bowl(p0, angle, side_grasp=side_grasp)
         self.publish_gripper_pose(ps)
         approach = copy.deepcopy(ps)
-        approach.pose.position.z += 0.2
-        if ps.pose.position.y > 0:
+        approach.pose.position.z += 0.1
+        #if ps.pose.position.y > 0:
+        if True:
             self.robot.move_left_arm(approach)
             self.robot.controller.open_left_gripper()
             self.robot.move_left_arm(ps)
             self.robot.controller.close_left_gripper()
+            if pullup:
+                self.robot.move_left_arm(approach)
         else:
             self.robot.move_right_arm(approach)
             self.robot.controller.open_right_gripper()
             self.robot.move_right_arm(ps)
             self.robot.controller.close_right_gripper()    
+            if pullup:
+                self.robot.move_right_arm(approach)
+        return ps
         
     def visible_trajectory(self, target, desired_dist):
         self.robot.controller.time_to_reach = 5.0
-        ddist = (desired_dist-0.01)
+        ddist = (desired_dist-0.01)*.7
         for gripper_x in np.linspace(target.pose.position.x - ddist, 
-                                     target.pose.position.x + ddist):
+                                     target.pose.position.x + ddist,
+                                     20):
         
-            min_gripper_y = target.pose.position.y - ddist;
-            max_gripper_y = target.pose.position.y + ddist;
-            contrain_z = lambda z: z>target.pose.position.z+0.0
+            min_gripper_y = target.pose.position.y - ddist
+            max_gripper_y = target.pose.position.y + ddist
+            contrain_z = lambda z: z>target.pose.position.z+0.1
             all_gripper_ps = self.point_at_gripper(target, 
                                                    desired_dist, 
                                                    gripper_x, 
