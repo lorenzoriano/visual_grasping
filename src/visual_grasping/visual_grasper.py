@@ -11,6 +11,8 @@ import tf
 import copy
 import numpy as np
 from pr2_control_utilities import IKUtilities
+from object_manipulation_msgs.srv import (GraspPlanning,
+                                          GraspPlanningRequest, GraspPlanningResponse)
 
 class VisualGrasper(object):
     def __init__(self, robot = None):
@@ -23,6 +25,8 @@ class VisualGrasper(object):
         self.tf_listener = tf.TransformListener()
         self.left_ik = IKUtilities("left",
                                    tf_listener=self.tf_listener)
+        self.grap_planning_srv = None
+        
     
     def gripper_from_points(self, p0, p1, frame_id = "/base_link"):
         """
@@ -203,3 +207,37 @@ class VisualGrasper(object):
                 self.robot.controller.time_to_reach = 1.5
                 self.robot.controller.set_arm_state(joints, "left", wait=True)
         self.robot.controller.time_to_reach = 5.0
+
+    def plan_grasp(self, graspable,
+                          graspable_name,
+                          table_name,
+                          which_arm,
+                          ):
+            """Picks up a previously detected object.
+    
+            Parameters:
+            graspable: an object_manipulation_msgs/GraspableObject msg instance.
+             This usually comes from a Detector.call_collision_map_processing call.
+            graspable_name: the name of the object to graps. It is provided by
+             Detector.call_collision_map_processing.
+            table_name: the name of the table. Again provided by Detector.call_collision_map_processing.
+            which_arm: left_arm or right_arm            
+    
+            Return:
+            a object_manipulation_msgs.GraspPlanningResponse msg
+            """
+            if self.grap_planning_srv is None:
+                srv_name =  "/plan_point_cluster_grasp"
+                rospy.loginfo("Waiting for service %s", srv_name)
+                rospy.wait_for_service(srv_name)
+                self.grap_planning_srv = rospy.ServiceProxy(srv_name,
+                                                            GraspPlanning)
+            rospy.loginfo("Calling the grasp planning service")
+            gp = GraspPlanningRequest()
+            gp.arm_name = which_arm
+            gp.target = graspable
+            gp.collision_object_name = graspable_name
+            gp.collision_support_surface_name = table_name
+    
+            res = self.grap_planning_srv(gp)
+            return res    
