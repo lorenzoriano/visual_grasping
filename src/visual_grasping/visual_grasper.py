@@ -255,4 +255,11 @@ class VisualGrasper(object):
             gp.collision_support_surface_name = table_name
     
             res = self.grap_planning_srv(gp)
-            return res    
+            isinstance(res, GraspPlanningResponse)
+            if res.error_code.value != res.error_code.SUCCESS:
+                rospy.logerr("Could not find valid grasps!")
+                return None
+            else:
+                grasps = sorted(res.grasps, key = lambda g:g.success_probability)
+                res.grasps = grasps
+                return res 
