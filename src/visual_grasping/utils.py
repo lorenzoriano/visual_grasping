@@ -5,62 +5,60 @@ from geometry_msgs.msg import PoseStamped, Pose
 from sensor_msgs.msg import PointCloud2, PointField
 from tf import transformations
 
-def pointcloud2_to_array(cloud_msg):
-    ''' 
-    Converts a rospy PointCloud2 message to a numpy recordarray 
+def pc2xyzrgb(pc):
+    arr = np.fromstring(pc.data,dtype='float32').reshape(pc.height,
+                                                         pc.width,pc.point_step/4)
+    xyz = arr[:,:,0:3]
     
-    Assumes all fields 32 bit floats, and there is no padding.
-    '''
-    dtype_list = [(f.name, np.float32) for f in cloud_msg.fields]
-    cloud_arr = np.fromstring(cloud_msg.data, dtype_list)
-    #return np.reshape(cloud_arr, (cloud_msg.height, cloud_msg.width))
-    return cloud_arr
-
-def get_xyz_points(cloud_array, remove_nans=True):
-    '''
-    Pulls out x, y, and z columns from the cloud recordarray, and returns a 3xN matrix.
-    '''
-    # remove crap points
-    if remove_nans:
-        mask = np.isfinite(cloud_array['x']) & np.isfinite(cloud_array['y']) & np.isfinite(cloud_array['z'])
-        cloud_array = cloud_array[mask]
+    rgb0 = np.ndarray(buffer=arr[:,:,4].copy(),shape=(pc.height,
+                                                      pc.width,4),dtype='uint8')
+    rgb = rgb0[:,:,0:3]
     
-    # pull out x, y, and z values
-    points = np.zeros(list(cloud_array.shape) + [3], dtype=np.float)
-    points[...,0] = cloud_array['x']
-    points[...,1] = cloud_array['y']
-    points[...,2] = cloud_array['z']
+    return xyz,rgb
 
-    return points
+def pc2xyz(pc):
+    arr = np.fromstring(pc.data,dtype='float32').reshape(pc.height,
+                                                         pc.width,pc.point_step/4)
+    xyz = arr[:,:,0:3]
+    return xyz
 
-def pointcloud2_to_xyz_array(cloud_msg, remove_nans=True):
-    return get_xyz_points(pointcloud2_to_array(cloud_msg), remove_nans=remove_nans)
+def xyz2pc(xyz,frame_id):
+    bgr = np.zeros_like(xyz)
+    return xyzrgb2pc(xyz,bgr,frame_id)
 
-def xyz_array_to_pointcloud2(points, stamp=None, frame_id=None):
-    '''
-    Create a sensor_msgs.PointCloud2 from an array
-    of points.
-    '''
-    msg = PointCloud2()
-    if stamp:
-        msg.header.stamp = stamp
-    if frame_id:
-        msg.header.frame_id = frame_id
-    if len(points.shape) == 3:
-        msg.height = points.shape[1]
-        msg.width = points.shape[0]
-    else:
-        msg.height = 1
-        msg.width = len(points)
-    msg.fields = [
-        PointField('x', 0, PointField.FLOAT32, 1),
-        PointField('y', 4, PointField.FLOAT32, 1),
-        PointField('z', 8, PointField.FLOAT32, 1)]
+def xyzrgb2pc(xyz,bgr,frame_id):
+    xyz = np.asarray(xyz)
+    bgr = np.asarray(bgr)
+    
+    assert xyz.shape == bgr.shape
+    if xyz.ndim ==2:
+        xyz = xyz[None,:,:]
+        bgr = bgr[None,:,:]
+    
+    height= xyz.shape[0]
+    width = xyz.shape[1]
+    
+    arr = np.empty((height,width,8),dtype='float32')
+    arr[:,:,0:3] = xyz
+    bgr1 = np.empty((height,width,4),dtype='uint8')
+    bgr1[:,:,0:3] = bgr
+    arr[:,:,4] = bgr1.view(dtype='float32').reshape(height, width)
+    data = arr.tostring()
+    msg = sm.PointCloud2()
+    msg.data = data
+    msg.header.frame_id = frame_id
+    msg.fields = [sm.PointField(name='x',offset=0,datatype=7,count=1),
+                  sm.PointField(name='y',offset=4,datatype=7,count=1),
+                  sm.PointField(name='z',offset=8,datatype=7,count=1),
+                  sm.PointField(name='rgb',offset=16,datatype=7,count=1)]
+    msg.is_dense = False
+    msg.width=width
+    msg.height=height
+    msg.header.stamp = rospy.Time.now()
+    msg.point_step = 32
+    msg.row_step = 32 * width
     msg.is_bigendian = False
-    msg.point_step = 12
-    msg.row_step = 12*points.shape[0]
-    msg.is_dense = int(np.isfinite(points).all())
-    msg.data = np.asarray(points, np.float32).tostring()
+    
     return msg
 
 def matrixToPose(matrix):
