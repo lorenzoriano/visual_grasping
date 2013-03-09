@@ -362,17 +362,18 @@ class VisualGrasper(object):
         if True:
             self.robot.move_left_arm(approach)
             self.robot.controller.open_left_gripper(True)
-            self.robot.move_left_arm(ps)
-            self.robot.controller.close_left_gripper(True)
-            if pullup:
-                self.robot.move_left_arm(approach)
+            
+            if self.robot.move_left_arm(ps):
+                self.robot.controller.close_left_gripper(True)
+                if pullup:
+                    self.robot.move_left_arm(approach)
         else:
             self.robot.move_right_arm(approach)
             self.robot.controller.open_right_gripper(True)
-            self.robot.move_right_arm(ps)
-            self.robot.controller.close_right_gripper(True)    
-            if pullup:
-                self.robot.move_right_arm(approach)
+            if self.robot.move_right_arm(ps):
+                self.robot.controller.close_right_gripper(True)    
+                if pullup:
+                    self.robot.move_right_arm(approach)
         return ps        
         
     def work_on_bolt_pointcloud(self, pc = None):
@@ -421,14 +422,16 @@ class VisualGrasper(object):
                 self.robot.move_left_arm(approach)
                 self.robot.controller.open_left_gripper(True)                
                 success = self.robot.move_left_arm(ps)
-                self.robot.controller.close_left_gripper(True)
+                if success:
+                    self.robot.controller.close_left_gripper(True)
                 if pullup:
                     self.robot.move_left_arm(approach)
             else:
                 self.robot.move_right_arm(approach)
                 self.robot.controller.open_right_gripper(True)
                 success = self.robot.move_right_arm(ps)
-                self.robot.controller.close_right_gripper(True)    
+                if success:
+                    self.robot.controller.close_right_gripper(True)    
                 if pullup:
                     self.robot.move_right_arm(approach)
             
