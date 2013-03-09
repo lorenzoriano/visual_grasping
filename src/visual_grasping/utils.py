@@ -1,9 +1,10 @@
 import copy
 import numpy as np
 from visualization_msgs.msg import Marker, MarkerArray
-from geometry_msgs.msg import PoseStamped, Pose
-from sensor_msgs.msg import PointCloud2, PointField
+from geometry_msgs.msg import PoseStamped, Pose, Point32
+from sensor_msgs.msg import PointCloud2, PointField, PointCloud
 from tf import transformations
+from object_manipulation_msgs.msg import GraspableObject
 
 def pc2xyzrgb(pc):
     arr = np.fromstring(pc.data,dtype='float32').reshape(pc.height,
@@ -268,8 +269,28 @@ def valid_sphere_given_one_coord(d,
     
     return all_points
             
-            
-        
-        
+def pc2graspable(pc, name="", frame_id = "/base_link"):
+    msg = GraspableObject()
+    msg.reference_frame_id = frame_id
+    if type(pc) is PointCloud2:
+        pc = PointCloud2_to_PointCloud(pc)
+    msg.cluster = pc
+    msg.collision_name = name
+    return msg
     
+def PointCloud_to_PointCloud2(pc):
+    isinstance(pc, PointCloud)
+    xyz = np.array([[pt.x, pt.y, pt.z] for pt in pc.points])[None,:,:]
+    rgb = np.zeros(xyz.shape)
+    pc2 = xyzrgb2pc(xyz, rgb, pc.header.frame_id)
+    return pc2
+
+def PointCloud2_to_PointCloud(pc):
+    assert isinstance(pc, PointCloud2)
+    xyz = pc2xyz(pc)
+    
+    msg = PointCloud()
+    msg.header = pc.header
+    msg.points = [Point32(x,y,z) for (x,y,z) in xyz[0,:,:]]
+    return msg
     

@@ -10,6 +10,7 @@ from sensor_msgs.msg import PointCloud2
 import tf
 import copy
 import numpy as np
+import time
 from pr2_control_utilities import IKUtilities
 from object_manipulation_msgs.srv import (GraspPlanning,
                                           GraspPlanningRequest, GraspPlanningResponse)
@@ -143,36 +144,6 @@ class VisualGrasper(object):
         ps.pose = utils.matrixToPose(T)
         return ps        
     
-    def do_the_grasp(self, angle, pullup=False, side_grasp = False):
-        bolt_points = rospy.wait_for_message("/bolt/vision/pcl_robot", 
-                                             PointCloud2)
-        rospy.loginfo("received the points")
-        all_points = utils.pointcloud2_to_xyz_array(bolt_points)
-        p0 = all_points[0,:]        
-        #angle = all_points[1,0]*360. / 255.
-        #rospy.loginfo("Raw angle: %s", all_points)
-        angle = np.deg2rad(angle + 90)
-        ps = self.grasp_bowl(p0, angle, side_grasp=side_grasp)
-        self.publish_gripper_pose(ps)
-        approach = copy.deepcopy(ps)
-        approach.pose.position.z += 0.1
-        #if ps.pose.position.y > 0:
-        if True:
-            self.robot.move_left_arm(approach)
-            self.robot.controller.open_left_gripper()
-            self.robot.move_left_arm(ps)
-            self.robot.controller.close_left_gripper()
-            if pullup:
-                self.robot.move_left_arm(approach)
-        else:
-            self.robot.move_right_arm(approach)
-            self.robot.controller.open_right_gripper()
-            self.robot.move_right_arm(ps)
-            self.robot.controller.close_right_gripper()    
-            if pullup:
-                self.robot.move_right_arm(approach)
-        return ps
-        
     def visible_trajectory(self, target, desired_dist):
         self.robot.controller.time_to_reach = 5.0
         ddist = (desired_dist-0.01)*.7
@@ -224,42 +195,162 @@ class VisualGrasper(object):
         self.robot.controller.time_to_reach = 5.0
 
     def plan_grasp(self, graspable,
-                          graspable_name,
-                          table_name,
-                          which_arm,
+                   which_arm,
+                          graspable_name = "",
+                          table_name = "",
                           ):
-            """Picks up a previously detected object.
+        """Picks up a previously detected object.
+
+        Parameters:
+        graspable: an object_manipulation_msgs/GraspableObject msg instance.
+         This usually comes from a Detector.call_collision_map_processing call.
+        graspable_name: the name of the object to graps. It is provided by
+         Detector.call_collision_map_processing.
+        table_name: the name of the table. Again provided by Detector.call_collision_map_processing.
+        which_arm: left_arm or right_arm            
+
+        Return:
+        a object_manipulation_msgs.GraspPlanningResponse msg
+        """
+        if self.grap_planning_srv is None:
+            srv_name =  "/plan_point_cluster_grasp"
+            rospy.loginfo("Waiting for service %s", srv_name)
+            rospy.wait_for_service(srv_name)
+            self.grap_planning_srv = rospy.ServiceProxy(srv_name,
+                                                        GraspPlanning)
+        rospy.loginfo("Calling the grasp planning service")
+        gp = GraspPlanningRequest()
+        gp.arm_name = which_arm
+        gp.target = graspable
+        gp.collision_object_name = graspable_name
+        gp.collision_support_surface_name = table_name
+
+        res = self.grap_planning_srv(gp)
+        isinstance(res, GraspPlanningResponse)
+        if res.error_code.value != res.error_code.SUCCESS:
+            rospy.logerr("Could not find valid grasps!")
+            return None
+        else:
+            grasps = sorted(res.grasps, key = lambda g:g.success_probability)
+            res.grasps = grasps
+            return res 
     
-            Parameters:
-            graspable: an object_manipulation_msgs/GraspableObject msg instance.
-             This usually comes from a Detector.call_collision_map_processing call.
-            graspable_name: the name of the object to graps. It is provided by
-             Detector.call_collision_map_processing.
-            table_name: the name of the table. Again provided by Detector.call_collision_map_processing.
-            which_arm: left_arm or right_arm            
-    
-            Return:
-            a object_manipulation_msgs.GraspPlanningResponse msg
-            """
-            if self.grap_planning_srv is None:
-                srv_name =  "/plan_point_cluster_grasp"
-                rospy.loginfo("Waiting for service %s", srv_name)
-                rospy.wait_for_service(srv_name)
-                self.grap_planning_srv = rospy.ServiceProxy(srv_name,
-                                                            GraspPlanning)
-            rospy.loginfo("Calling the grasp planning service")
-            gp = GraspPlanningRequest()
-            gp.arm_name = which_arm
-            gp.target = graspable
-            gp.collision_object_name = graspable_name
-            gp.collision_support_surface_name = table_name
-    
-            res = self.grap_planning_srv(gp)
-            isinstance(res, GraspPlanningResponse)
-            if res.error_code.value != res.error_code.SUCCESS:
-                rospy.logerr("Could not find valid grasps!")
-                return None
+    def publish_grasps(self, grasp_planning_response, frame_id="/base_link",
+                       sleeping_time = 0.05):
+        assert isinstance(grasp_planning_response, GraspPlanningResponse)
+        for g in grasp_planning_response.grasps:
+            p = PoseStamped()
+            p.pose = g.grasp_pose
+            p.header.frame_id = frame_id
+            self.publish_gripper_pose(p)
+            time.sleep(sleeping_time)
+            
+    def grab_pointcloud(self, whicharm="leftarm",
+                                pc = None,
+                                pullup = False):
+        if pc is None:
+            rospy.loginfo("Waiting for BOLT pointcloud")
+            pc = rospy.wait_for_message("/bolt/vision/pcl_robot", PointCloud2)
+            rospy.loginfo("Ok got it!")
+        xyz, rgb = utils.pc2xyzrgb(pc)
+        weights = rgb[0,:,0]
+        sorted_indexes = np.argsort(weights)
+        
+        rospy.loginfo("Calculating standard grasping points")
+        graspable = utils.pc2graspable(pc)
+        grasps = self.plan_grasp(graspable, whicharm)
+        if grasps is None:
+            rospy.logerr("No grasping poses found!")
+            return None
+        
+        self.publish_grasps(grasps)
+        xyz = xyz[0,:,:]
+        
+        rospy.loginfo("reweighting grasps")
+        grasping_scores_poses = []
+        for g in grasps.grasps:
+            gx = g.grasp_pose.position.x
+            gy = g.grasp_pose.position.y
+            gz = g.grasp_pose.position.z
+            closest = np.argmin(np.abs(xyz-(gx,gy,gz)).sum(1))
+            w = weights[closest]
+            grasping_scores_poses.append((w, g))
+            
+        grasping_poses = [g[1] for g in reversed(sorted(grasping_scores_poses))]
+        success = False
+        for g in grasping_poses:
+            rospy.loginfo("Testing a grasp")
+            ps = PoseStamped()
+            ps.header.frame_id = pc.header.frame_id
+            ps.pose = g.grasp_pose
+            self.publish_gripper_pose(ps)
+            
+            approach = copy.deepcopy(ps)
+            approach.pose.position.z += 0.1            
+
+            if whicharm == "leftarm":
+                self.robot.move_left_arm(approach)
+                self.robot.controller.open_left_gripper()                
+                success = self.robot.move_left_arm(ps)
+                self.robot.controller.close_left_gripper()
+                if pullup:
+                    self.robot.move_left_arm(approach)
             else:
-                grasps = sorted(res.grasps, key = lambda g:g.success_probability)
-                res.grasps = grasps
-                return res 
+                self.robot.move_right_arm(approach)
+                self.robot.controller.open_right_gripper()
+                success = self.robot.move_right_arm(ps)
+                self.robot.controller.close_right_gripper()    
+                if pullup:
+                    self.robot.move_right_arm(approach)
+            
+            if success:
+                break
+            
+    def do_the_grasp(self, pc = None, angle=None, pullup=False, side_grasp = False):
+        if pc is None:
+            bolt_points = rospy.wait_for_message("/bolt/vision/pcl_robot", 
+                                             PointCloud2)
+            rospy.loginfo("received the points")
+        else:
+            bolt_points = pc
+        xyz, rgb = utils.pc2xyzrgb(bolt_points)
+        if angle is None:
+            p0 = xyz[0,0,:]
+            angle = rgb[0,0,2] /255. * 360.
+        #angle = all_points[1,0]*360. / 255.
+        #rospy.loginfo("Raw angle: %s", all_points)
+        angle = np.deg2rad(angle + 90)
+        ps = self.grasp_bowl(p0, angle, side_grasp=side_grasp)
+        self.publish_gripper_pose(ps)
+        approach = copy.deepcopy(ps)
+        approach.pose.position.z += 0.1
+        #if ps.pose.position.y > 0:
+        if True:
+            self.robot.move_left_arm(approach)
+            self.robot.controller.open_left_gripper()
+            self.robot.move_left_arm(ps)
+            self.robot.controller.close_left_gripper()
+            if pullup:
+                self.robot.move_left_arm(approach)
+        else:
+            self.robot.move_right_arm(approach)
+            self.robot.controller.open_right_gripper()
+            self.robot.move_right_arm(ps)
+            self.robot.controller.close_right_gripper()    
+            if pullup:
+                self.robot.move_right_arm(approach)
+        return ps        
+        
+    def work_on_bolt_pointcloud(self, pc = None):
+        if pc is None:
+            rospy.loginfo("Waiting for BOLT pointcloud")
+            pc = rospy.wait_for_message("/bolt/vision/pcl_robot", PointCloud2)
+            rospy.loginfo("Ok got it!")
+        
+        length = pc.width * pc.height
+        if length == 1:
+            rospy.loginfo("Old grasp with a single point")
+            self.do_the_grasp(pc)
+        else:
+            rospy.loginfo("Grasping a pointcloud")
+            self.grab_pointcloud(pc=pc)            
