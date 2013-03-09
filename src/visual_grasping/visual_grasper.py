@@ -319,7 +319,6 @@ class VisualGrasper(object):
             ps.header.frame_id = pc.header.frame_id
             ps.pose = g.grasp_pose
             self.publish_gripper_pose(ps)
-            return
             
             approach = copy.deepcopy(ps)
             approach.pose.position.z += 0.1            
