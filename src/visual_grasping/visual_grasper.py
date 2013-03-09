@@ -24,8 +24,8 @@ class VisualGrasper(object):
             
         self.gripper_pub = rospy.Publisher("~gripper_estimate", MarkerArray)    
         self.tf_listener = tf.TransformListener()
-        self.left_ik = IKUtilities("left",
-                                   tf_listener=self.tf_listener)
+        #self.left_ik = IKUtilities("left",
+                                   #tf_listener=self.tf_listener)
         self.grap_planning_srv = None
         
     
@@ -354,3 +354,49 @@ class VisualGrasper(object):
         else:
             rospy.loginfo("Grasping a pointcloud")
             self.grab_pointcloud(pc=pc)            
+            
+            
+    def standard_grasping(self, pc = None, whicharm="leftarm",
+                          pullup=False):
+        if pc is None:
+            rospy.loginfo("Waiting for BOLT pointcloud")
+            pc = rospy.wait_for_message("/bolt/vision/pcl_robot", PointCloud2)
+            rospy.loginfo("Ok got it!")
+        
+        rospy.loginfo("Calculating standard grasping points")
+        graspable = utils.pc2graspable(pc)
+        grasps = self.plan_grasp(graspable, whicharm)
+        if grasps is None:
+            rospy.logerr("No grasping poses found!")
+            return None
+        
+        grasp_tuples = [(g.success_probability, g) for g in grasps.grasps]
+        sorted_grasps = [g[1] for g in reversed(sorted(grasp_tuples))]
+        for g in sorted_grasps:
+            rospy.loginfo("Testing a grasp")
+            ps = PoseStamped()
+            ps.header.frame_id = pc.header.frame_id
+            ps.pose = g.grasp_pose
+            self.publish_gripper_pose(ps)
+            
+            approach = copy.deepcopy(ps)
+            approach.pose.position.z += 0.1            
+
+            if whicharm == "leftarm":
+                self.robot.move_left_arm(approach)
+                self.robot.controller.open_left_gripper()                
+                success = self.robot.move_left_arm(ps)
+                self.robot.controller.close_left_gripper()
+                if pullup:
+                    self.robot.move_left_arm(approach)
+            else:
+                self.robot.move_right_arm(approach)
+                self.robot.controller.open_right_gripper()
+                success = self.robot.move_right_arm(ps)
+                self.robot.controller.close_right_gripper()    
+                if pullup:
+                    self.robot.move_right_arm(approach)
+            
+            if success:
+                break        
+        
