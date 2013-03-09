@@ -384,10 +384,10 @@ class VisualGrasper(object):
         length = pc.width * pc.height
         if length == 1:
             rospy.loginfo("Old grasp with a single point")
-            self.do_the_grasp(pc)
+            self.do_the_grasp(pc, pullup=True)
         else:
             rospy.loginfo("Grasping a pointcloud")
-            self.grab_pointcloud(pc=pc)            
+            self.grab_pointcloud(pc=pc, pullup=True)            
             
             
     def standard_grasping(self, pc = None, whicharm="leftarm",
