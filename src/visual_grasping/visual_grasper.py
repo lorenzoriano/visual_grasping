@@ -254,8 +254,23 @@ class VisualGrasper(object):
             rospy.loginfo("Ok got it!")
         xyz, rgb = utils.pc2xyzrgb(pc)
         weights = rgb[0,:,0]
-        sorted_indexes = np.argsort(weights)
         
+        sorted_indexes = np.argsort(weights)[::-1]
+        weights = weights[sorted_indexes]
+        xyz = xyz[0,:,:]
+        xyz = xyz[sorted_indexes,:]
+        rospy.loginfo("The maximum weight is %f", weights.max())        
+        rospy.loginfo("The min weight is %f", weights.min())                
+        
+        trim_weights = 20
+        rospy.loginfo("Taking only the maximum %d weights", trim_weights)
+        weights = weights[:trim_weights]
+        xyz = xyz[:trim_weights,:] 
+        
+        rospy.loginfo("XYZ shape %s, W shape: %s", xyz.shape, weights.shape)
+
+        rospy.loginfo("The maximum weight is %f", weights.max())        
+        rospy.loginfo("The min weight is %f", weights.min())        
         rospy.loginfo("Calculating standard grasping points")
         graspable = utils.pc2graspable(pc)
         grasps = self.plan_grasp(graspable, whicharm)
@@ -263,27 +278,48 @@ class VisualGrasper(object):
             rospy.logerr("No grasping poses found!")
             return None
         
-        self.publish_grasps(grasps)
-        xyz = xyz[0,:,:]
+        #self.publish_grasps(grasps,sleeping_time = 1.0)
         
-        rospy.loginfo("reweighting grasps")
+        rospy.loginfo("reweighting grasps")        
+        
+
+        grasp_xyz = np.array([[g.grasp_pose.position.x,
+                               g.grasp_pose.position.y,
+                               g.grasp_pose.position.z,]
+                              for g in grasps.grasps])
+        
+        #grasping_poses = []
+        #for i, (x,y,z) in enumerate(xyz):
+            #closest = np.argmin(np.abs(grasp_xyz-(x,y,z)).sum(1))            
+            #g = grasps.grasps[closest]
+            #grasping_poses.append(g)
+            #p = PoseStamped()
+            #p.pose = g.grasp_pose
+            #p.header.frame_id = "/base_link"
+            #self.publish_gripper_pose(p)
+            #time.sleep(0.2)
+        
         grasping_scores_poses = []
         for g in grasps.grasps:
             gx = g.grasp_pose.position.x
             gy = g.grasp_pose.position.y
             gz = g.grasp_pose.position.z
-            closest = np.argmin(np.abs(xyz-(gx,gy,gz)).sum(1))
+            closest = np.argmin(np.abs(xyz-(gx,gy,gz - 0.18 )).sum(1))
             w = weights[closest]
-            grasping_scores_poses.append((w, g))
-            
+            if w > 0:
+                grasping_scores_poses.append((w, g))
+                    
         grasping_poses = [g[1] for g in reversed(sorted(grasping_scores_poses))]
+        
+        rospy.loginfo("We have a total of %d grasps", len(grasping_poses))
         success = False
         for g in grasping_poses:
-            rospy.loginfo("Testing a grasp")
+            rospy.loginfo("Testing a grasp with")
             ps = PoseStamped()
             ps.header.frame_id = pc.header.frame_id
             ps.pose = g.grasp_pose
             self.publish_gripper_pose(ps)
+            return
             
             approach = copy.deepcopy(ps)
             approach.pose.position.z += 0.1            
@@ -357,7 +393,8 @@ class VisualGrasper(object):
             
             
     def standard_grasping(self, pc = None, whicharm="leftarm",
-                          pullup=False):
+                          pullup=False
+                          ):
         if pc is None:
             rospy.loginfo("Waiting for BOLT pointcloud")
             pc = rospy.wait_for_message("/bolt/vision/pcl_robot", PointCloud2)
