@@ -13,10 +13,10 @@ from pr2_control_utilities import pr2_joint_mover
 if __name__ == "__main__":
 
     if len(sys.argv) == 1:
-        print "Usage: %s [bolt | baseline | rest]"
+        print "Usage: %s [bolt | baseline | rest]" % sys.argv[0]
         sys.exit(1)                
     elif sys.argv[1] not in ["bolt" , "baseline" , "rest"]:
-        print "Usage: %s [bolt | baseline | rest]"
+        print "Usage: %s [bolt | baseline | rest]" % sys.argv[0]
         sys.exit(1)        
 
     rospy.init_node("visual_grasping")
