@@ -313,8 +313,7 @@ class VisualGrasper(object):
         
         rospy.loginfo("We have a total of %d grasps", len(grasping_poses))
         success = False
-        for g in grasping_poses:
-            rospy.loginfo("Testing a grasp with")
+        for g in grasping_poses:            
             ps = PoseStamped()
             ps.header.frame_id = pc.header.frame_id
             ps.pose = g.grasp_pose
