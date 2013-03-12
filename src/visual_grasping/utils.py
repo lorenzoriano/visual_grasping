@@ -293,4 +293,18 @@ def PointCloud2_to_PointCloud(pc):
     msg.header = pc.header
     msg.points = [Point32(x,y,z) for (x,y,z) in xyz[0,:,:]]
     return msg
-    
+
+def create_spaced_downward_grasp_(xyz, cloud_in, num_grasps=20):
+    z_angle = 0
+    y_angle = np.pi / 2
+    for z_angle in np.linspace(-np.pi, np.pi, num_grasps):
+        g = Grasp()
+        p = Pose()
+        p.position.x = xyz[0]
+        p.position.x = xyz[1]
+        p.position.x = xyz[2]
+        q = transformations.quaternion_from_euler(x_angle, y_angle, z_angle)
+        p.orientation.x = q[0]
+        p.orientation.y = q[1]
+        p.orientation.z = q[2]
+        p.orientation.w = q[3]
