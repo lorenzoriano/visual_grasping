@@ -274,6 +274,8 @@ class VisualGrasper(object):
         rospy.loginfo("Calculating standard grasping points")
         graspable = utils.pc2graspable(pc)
         grasps = self.plan_grasp(graspable, whicharm)
+        self.publish_grasps(grasps, sleeping_time=0.2)
+        return        
         if grasps is None:
             rospy.logerr("No grasping poses found!")
             return None
@@ -308,7 +310,7 @@ class VisualGrasper(object):
             w = weights[closest]
             if w > 0:
                 grasping_scores_poses.append((w, g))
-                    
+        
         grasping_poses = [g[1] for g in reversed(sorted(grasping_scores_poses))]
         
         rospy.loginfo("We have a total of %d grasps", len(grasping_poses))
