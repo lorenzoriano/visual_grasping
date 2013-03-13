@@ -458,7 +458,7 @@ class VisualGrasper(object):
         rospy.loginfo("Initially The maximum weight is %f", weights.max())        
         rospy.loginfo("Initially The min weight is %f", weights.min())                
         
-        trim_weights = 20
+        trim_weights = 5
         rospy.loginfo("Taking only the maximum %d weights", trim_weights)
         weights = weights[:trim_weights]
         xyz = xyz[:trim_weights,:] 
@@ -474,7 +474,7 @@ class VisualGrasper(object):
         grasp_planning = GraspPlanningRequest()
         grasps = []
         for coords in xyz:
-            _g = utils.create_spaced_downward_grasps(coords, pc,10)
+            _g = utils.create_spaced_downward_grasps(coords, pc,20)
             grasps.extend(_g)
         rospy.loginfo("Testing a total of %d grasps", len(grasps))
         graspable = utils.pc2graspable(pc)
@@ -491,9 +491,11 @@ class VisualGrasper(object):
             rospy.logerr("Error: no valid grasps found!")
             return False
         
+        
         probs = [g.success_probability 
                  for g in non_zero_grasps]
         rospy.loginfo("probabilities are: %s", probs)
+        rospy.loginfo("Number of non-zero %d grasps", len(non_zero_grasps))
         #self.publish_grasps(res)
         
         for g in non_zero_grasps:
