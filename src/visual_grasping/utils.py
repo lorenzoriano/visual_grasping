@@ -296,16 +296,25 @@ def PointCloud2_to_PointCloud(pc):
     msg.points = [Point32(x,y,z) for (x,y,z) in xyz[0,:,:]]
     return msg
 
-def create_spaced_downward_grasps(xyz, cloud_in, num_grasps=20):
+def create_spaced_downward_grasps(xyz, cloud_in, num_grasps=20,
+                                  num_axis_attempts = 5):
     x_angle = 0
     y_angle = np.pi / 2
     grasps = []
+    orig_x, orig_y, orig_z = xyz
+    
     for z_angle in np.linspace(-np.pi, np.pi, num_grasps):
+        #for x in np.linspace(orig_x - 0.01, orig_x + 0.01, num_axis_attempts):
+            #for y in np.linspace(orig_y - 0.01, orig_y + 0.01, num_axis_attempts):
+                #for z in np.linspace(orig_z - 0.01, orig_z + 0.01, num_axis_attempts):
+        x = orig_x
+        y = orig_y
+        z = orig_z
         g = Grasp()
         p = Pose()
-        p.position.x = xyz[0]
-        p.position.y = xyz[1]
-        p.position.z = xyz[2] + 0.18
+        p.position.x = x
+        p.position.y = y
+        p.position.z = z  + 0.17
         q = transformations.quaternion_from_euler(x_angle, y_angle, z_angle)
         p.orientation.x = q[0]
         p.orientation.y = q[1]
@@ -314,4 +323,5 @@ def create_spaced_downward_grasps(xyz, cloud_in, num_grasps=20):
         g.grasp_pose = p
         grasps.append(g)
     return grasps
+        
         
