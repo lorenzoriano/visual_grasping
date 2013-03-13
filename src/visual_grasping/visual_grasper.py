@@ -439,4 +439,97 @@ class VisualGrasper(object):
             
             if success:
                 break        
+    
+    def generate_scored_grasps(self, pc = None, whicharm = "leftarm",
+                               pullup = False):
+        if pc is None:
+            rospy.loginfo("Waiting for BOLT pointcloud")
+            pc = rospy.wait_for_message("/bolt/vision/pcl_robot", PointCloud2)
+            rospy.loginfo("Ok got it!")
+            
+        xyz, rgb = utils.pc2xyzrgb(pc)
+        weights = rgb[0,:,0]
+        
+        sorted_indexes = np.argsort(weights)[::-1]
+        weights = weights[sorted_indexes]
+        xyz = xyz[0,:,:]
+        xyz = xyz[sorted_indexes,:]
+        rospy.loginfo("Initially The maximum weight is %f", weights.max())        
+        rospy.loginfo("Initially The min weight is %f", weights.min())                
+        
+        trim_weights = 20
+        rospy.loginfo("Taking only the maximum %d weights", trim_weights)
+        weights = weights[:trim_weights]
+        xyz = xyz[:trim_weights,:] 
+        
+        rospy.loginfo("XYZ shape %s, W shape: %s", xyz.shape, weights.shape)
+        rospy.loginfo("After trimming The maximum weight is %f", weights.max())        
+        rospy.loginfo("After trimming The min weight is %f", weights.min()) 
+        
+        rospy.wait_for_service('evaluate_point_cluster_grasps')
+        evaluate_grasps = rospy.ServiceProxy('evaluate_point_cluster_grasps', 
+                                             GraspPlanning)
+        
+        grasp_planning = GraspPlanningRequest()
+        grasps = []
+        for coords in xyz:
+            _g = utils.create_spaced_downward_grasps(coords, pc,10)
+            grasps.extend(_g)
+        rospy.loginfo("Testing a total of %d grasps", len(grasps))
+        graspable = utils.pc2graspable(pc)
+        grasp_planning.target = graspable
+        grasp_planning.grasps_to_evaluate = grasps
+        res = evaluate_grasps(grasp_planning)
+        grasps = res.grasps
+        
+        non_zero_grasps = sorted([g for g in grasps 
+                                  if g.success_probability > 0],
+                                 key = lambda g:g.success_probability,
+                                 reverse=True)
+        if len(non_zero_grasps) == 0:
+            rospy.logerr("Error: no valid grasps found!")
+            return False
+        
+        probs = [g.success_probability 
+                 for g in non_zero_grasps]
+        rospy.loginfo("probabilities are: %s", probs)
+        #self.publish_grasps(res)
+        
+        for g in non_zero_grasps:
+            rospy.loginfo("Testing a grasp")
+            ps = PoseStamped()
+            ps.header.frame_id = pc.header.frame_id
+            ps.pose = g.grasp_pose
+            self.publish_gripper_pose(ps)
+            
+            approach = copy.deepcopy(ps)
+            approach.pose.position.z += 0.1            
+
+            if whicharm == "leftarm":
+                self.robot.move_left_arm(approach)
+                self.robot.controller.open_left_gripper(True)                
+                success = self.robot.move_left_arm(ps)
+                if success:
+                    self.robot.controller.close_left_gripper(True)
+                if pullup:
+                    self.robot.move_left_arm(approach)
+            else:
+                self.robot.move_right_arm(approach)
+                self.robot.controller.open_right_gripper(True)
+                success = self.robot.move_right_arm(ps)
+                if success:
+                    self.robot.controller.close_right_gripper(True)    
+                if pullup:
+                    self.robot.move_right_arm(approach)
+            
+            if success:
+                break                
+        
+        
+        
+            
+        
+         
+        
+        
         
