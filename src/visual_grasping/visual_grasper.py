@@ -474,7 +474,7 @@ class VisualGrasper(object):
         grasp_planning = GraspPlanningRequest()
         grasps = []
         for coords in xyz:
-            _g = utils.create_spaced_downward_grasps(coords, pc,20)
+            _g = utils.create_spaced_downward_grasps(coords, pc,40)
             grasps.extend(_g)
         rospy.loginfo("Testing a total of %d grasps", len(grasps))
         graspable = utils.pc2graspable(pc)
