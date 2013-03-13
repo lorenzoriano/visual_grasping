@@ -391,7 +391,7 @@ class VisualGrasper(object):
         else:
             rospy.loginfo("Grasping a pointcloud")
             #self.grab_pointcloud(pc=pc, pullup=True)  
-            generate_scored_grasps(pc=pc, pullup=True) 
+            self.generate_scored_grasps(pc=pc, pullup=True) 
             
             
     def standard_grasping(self, pc = None, whicharm="leftarm",
